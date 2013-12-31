@@ -2,7 +2,7 @@
     "server": {
         "accessLog": "/var/log/access.log",
         "port": 80,
-        "workers": 10,
+        "workers": 2,
         "maxSockets": 100,
         "deadBackendTTL": 30,
         "tcpTimeout": 30,

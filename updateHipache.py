@@ -76,6 +76,8 @@ def setHipache(ports, aname, hostname, port):
     else:
         ip = 'localhost'
     base = getBase(hostname, port)
+    key = base + aname + '/connected/' 
+    r = requests.delete(key, verify=False, cert=('client.crt', 'client.key'), params = {'recursive':'true'})
     for did, port in ports.items():
         value = '{0}:{1}'.format(ip, port )
         key = base + aname + '/connected/' + did
@@ -105,9 +107,8 @@ def updateAllRedis(updateableNodes = dict(), hostname='localhost', port=4001):
         node = nodeFull.split('/')[-1]
         if node in updateableNodes:
             cns = getConnectedNodes(nodeFull, hostname, port)
-            updateRedis(node, updateableNodes[node], cns)
-
-
+            for x in updateableNodes[node]:
+                updateRedis(node, x, cns)
 
 def setAll(hostname, port):
     getCreds()
@@ -124,4 +125,4 @@ def setAll(hostname, port):
 
 if __name__ == '__main__':
     setAll('rymurr.com', 4001)
-    updateAllRedis({'ghost-cort': 'loftypen.com', 'twilio':'rymurr.com'}, 'rymurr.com', 4001)
+    updateAllRedis({'ghost-cort': ['loftypen.com'], 'twilio':['rymurr.com']}, 'rymurr.com', 4001)

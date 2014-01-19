@@ -124,5 +124,14 @@ def setAll(hostname, port):
 #        setHipache(h, name, hostname)
 
 if __name__ == '__main__':
-    setAll('rymurr.com', 4001)
+    try:
+        r = requests.get('http://169.254.169.254/latest/meta-data/public-ipv4', timeout=0.2)
+    except requests.Timeout:
+        r = None
+    if r is not None and r.ok:
+        ip = r.text
+    else:
+        ip = 'rymurr.com'
+
+    setAll(ip, 4001)
     updateAllRedis({'ghost-cort': ['loftypen.com'], 'twilio':['rymurr.com']}, 'rymurr.com', 4001)

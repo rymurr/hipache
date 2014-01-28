@@ -2,15 +2,49 @@ import boto
 import requests
 import subprocess
 import redis
+import docker
 
+config = {'rymurr/ghost-cort':{22:'backup',2368:'hipache','site':['loftypen.com','www.loftypen.com']},
+          'rymurr/ghost-ryan':{22:'backup',2368:'hipache', 'site':['rymurr.com','www.rymurr.com']},
+          'rymurr/twilio':{80:'hipache', 'site':['twilio.rymurr.com']},
+         }
 try:
     from secret import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+    TOKEN = None
 except:
-    AWS_ACCESS_KEY_ID = None
-    AWS_SECRET_ACCESS_KEY = None
+    try:
+        sts = boto.connect_sts()
+        ar = sts.assume_role(role_arn="arn:aws:iam::710599580852:role/remote", role_session_name="rymurr")
+        AWS_ACCESS_KEY_ID = ar.credentials.access_key
+        AWS_SECRET_ACCESS_KEY = ar.credentials.secret_key
+        TOKEN = ar.credentials.session_token
+    except:
+        TOKEN = None
+        AWS_ACCESS_KEY_ID = None
+        AWS_SECRET_ACCESS_KEY = None
+
+def getFromDocker():
+    c = docker.Client()
+    containers = c.containers()
+    ip = getIp()
+    toHipache = {}
+    for container in containers:
+        image = container['Image'].split(':')[0]
+        name = image.split('/')[-1]
+        if not image in config.keys():
+            continue
+        toHipache[name] = {}
+        cfg = config[image]
+        ports = container['Ports']
+        
+        for port in ports:
+            if port['PrivatePort'] in cfg and cfg[port['PrivatePort']] == 'hipache':
+                toHipache[name][container['Names'][0].strip('/')] = port['PublicPort']
+    return toHipache
+                
 
 def getCreds():
-    conn = boto.connect_s3(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+    conn = boto.connect_s3(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, security_token=TOKEN)
     bucket = conn.get_bucket('0NK38GF20CCT6VYTBG02'.lower() + '-keys')
     bucket.get_key('client.key').get_contents_to_filename('client.key')
     bucket.get_key('client.crt').get_contents_to_filename('client.crt')
@@ -66,7 +100,7 @@ def getRedis():
     r = redis.StrictRedis(host='localhost', port=exPort, db=0)
     return r
 
-def setHipache(ports, aname, hostname, port):
+def getIp():
     try:
         r = requests.get('http://169.254.169.254/latest/meta-data/public-ipv4', timeout=0.2)
     except requests.Timeout:
@@ -75,21 +109,22 @@ def setHipache(ports, aname, hostname, port):
         ip = r.text
     else:
         ip = 'localhost'
+    return ip
+
+def setHipache(ports, aname, hostname, port):
+    ip = getIp()
     base = getBase(hostname, port)
-    key = base + aname + '/connected/' 
-    r = requests.delete(key, verify=False, cert=('client.crt', 'client.key'), params = {'recursive':'true'})
     for did, port in ports.items():
         value = '{0}:{1}'.format(ip, port )
         key = base + aname + '/connected/' + did
         print 'setting value = ' + value + ' for key ' + key
         r = requests.put(key, verify=False, cert=('client.crt', 'client.key'), params = {'value':value})
-    #for name, port in ports.items():
-    #    r.rpush("frontend:"+hostname, aname)
-    #    r.rpush("frontend:"+hostname, "http://" + ip + ":"+str(port))
         
 def updateRedis(aname, hostname, cHosts):
     frontend = 'frontend:' + hostname
     r = getRedis()
+    if cHosts is None:
+        return
     if len(r.lrange(frontend,0,-1)) != 0:
         clearRedis(frontend, r)
     print 'Adding ', aname, ' to frontend', frontend
@@ -112,26 +147,11 @@ def updateAllRedis(updateableNodes = dict(), hostname='localhost', port=4001):
 
 def setAll(hostname, port):
     getCreds()
-    i = getHipacheNodes(hostname, port)
-    for n in i:
-        nodes = getAllListedNodes(n, hostname, port)
-        ports = getExternalPort(nodes)
-        setHipache(ports, n, hostname, port)
-
-#    i = getHipache(name)
-#    if i is not None:
-#        h = getExternalPort(i)
-#        setHipache(h, name, hostname)
+    i = getFromDocker()#getHipacheNodes(hostname, port)
+    for n,ports in i.items():
+        setHipache(ports, '/hipache/'+n, hostname, port)
 
 if __name__ == '__main__':
-    try:
-        r = requests.get('http://169.254.169.254/latest/meta-data/public-ipv4', timeout=0.2)
-    except requests.Timeout:
-        r = None
-    if r is not None and r.ok:
-        ip = r.text
-    else:
-        ip = 'rymurr.com'
-
+    ip = 'rymurr.com'
     setAll(ip, 4001)
-    updateAllRedis({'ghost-cort': ['loftypen.com'], 'twilio':['rymurr.com']}, 'rymurr.com', 4001)
+    updateAllRedis({'ghost-cort': ['loftypen.com','www.loftypen.com'], 'twilio':['twilio.rymurr.com']}, 'rymurr.com', 4001)
